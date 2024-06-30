@@ -61,7 +61,7 @@ dnsx -l subs.txt -json -o dns.json
 cat dns.json | jq -r '.a[]' | tee ips.txt
 nmap -T4 -iL ips.txt -oX nmap.xml
 
-tew -x nmap.xml -dnsx dns.json --vhost | httpx -json -o http.json
+tew -x nmap.xml -dnsx dns.json --vhost | cut -d : -f1| sort | uniq | httpx -json -o http.json
 ```
 
 ## Include Orphaned IPs
@@ -72,12 +72,17 @@ This is useful when you have a comprehensive Nmap scan that identifies more IPs 
 Example output:
 
 ```
-tew -x nmap.xml -dnsx dns.json --vhost --include-orphaned-ips
+tew -x nmap.xml -dnsx dns.json --vhost --include-orphaned-ips 
 
-192.168.5.34:80 # 
+192.168.5.34:80
 192.168.5.34:443
 sub1.scanme.nmap.org:443
 sub1.scanme.nmap.org:80
+```
+
+### httpx:
+```
+tew -x nmap.xml -dnsx dns.json --vhost --include-orphaned-ips | cut -d : -f1| sort | uniq | httpx -json -o http.json
 ```
 
 ## URL Generation
