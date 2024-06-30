@@ -55,10 +55,11 @@ func main() {
 
     // Remove ip:port entries for IPs that have associated domains
     if vhost {
-        ipSet := make(map[string]bool)
-        domainSet := make(map[string]bool)
-        updatedResults := []string{}
+        ipSet := make(map[string]bool)       // Set to track unique IPs
+        domainSet := make(map[string]bool)   // Set to track unique domains
+        updatedResults := []string{}         // List to store filtered results
 
+        // First pass: Populate ipSet and domainSet
         for _, line := range results {
             parts := strings.Split(line, ":")
             if len(parts) == 2 {
@@ -70,16 +71,25 @@ func main() {
             }
         }
 
+        // Second pass: Filter results based on ipSet and domainSet
         for _, line := range results {
             parts := strings.Split(line, ":")
             if len(parts) == 2 {
-                if net.ParseIP(parts[0]) != nil {
-                    if !domainSet[parts[0]] {
+                ip := parts[0]    // The first part is considered as the IP address or domain
+                port := parts[1]  // The second part is considered as the port number
+
+                // Check if the first part is a valid IP address
+                if net.ParseIP(ip) != nil {
+                    // If the IP address is not in domainSet or the port is neither 80 nor 443
+                    if !domainSet[ip] || (port != "80" && port != "443") {
                         updatedResults = append(updatedResults, line)
                     }
                 } else {
                     updatedResults = append(updatedResults, line)
                 }
+            } else {
+                // Handle case where there is no port part (likely a URL)
+                updatedResults = append(updatedResults, line)
             }
         }
 
@@ -118,6 +128,7 @@ func unique(slice []string) []string {
     for v := range uniqMap {
         uniqSlice = append(uniqSlice, v)
     }
+
     return uniqSlice
 }
 
@@ -210,7 +221,7 @@ func (p parse) parseNmap(input string, dnsx string, vhost bool, includeOrphanedI
     return output
 }
 
-func processData(ipAddr string, port string, service string, vhost bool, includeUniqueIp bool, urls bool, index map[string][]string) []string {
+func processData(ipAddr string, port string, service string, vhost bool, includeOrphanedIps bool, urls bool, index map[string][]string) []string {
     var output []string
     indexed, exists := index[ipAddr]
 
@@ -232,8 +243,8 @@ func processData(ipAddr string, port string, service string, vhost bool, include
                 output = append(output, line)
             }
         }
-        // If includeUniqueIp is enabled and the IP address has no associated domains
-        if includeUniqueIp && !exists {
+        // If includeOrphanedIps is enabled and the IP address has no associated domains
+        if includeOrphanedIps && !exists {
             var line string
             // If URL generation is enabled, generate a URL
             if urls {
@@ -262,21 +273,64 @@ func processData(ipAddr string, port string, service string, vhost bool, include
 }
 
 func generateURL(host string, port string, service string) string {
-    url := ""
-    // Determine the protocol based on the port and service
-    if (port == "80" && service == "http") || (port == "443" && service == "https") {
-        url = service + "://" + host
-    } else if strings.Contains(service, "http") {
-        if port == "80" {
-            url = "http://" + host + ":" + port
-        } else if port == "443" {
-            url = "https://" + host + ":" + port
-        } else {
-            url = "http://" + host + ":" + port
-        }
-    } else {
-        url = "http://" + host + ":" + port
+    var protocol string
+
+    // Determine the protocol based on the service or port
+    switch {
+    case strings.Contains(service, "https"):
+        protocol = "https://"
+    case strings.Contains(service, "http"):
+        protocol = "http://"
+    case service == "ftp":
+        protocol = "ftp://"
+    case service == "ssh":
+        protocol = "ssh://"
+    case service == "telnet":
+        protocol = "telnet://"
+    case service == "smtp":
+        protocol = "smtp://"
+    case service == "imap":
+        protocol = "imap://"
+    case service == "pop3":
+        protocol = "pop3://"
+    case service == "sftp":
+        protocol = "sftp://"
+    case port == "21":
+        protocol = "ftp://"
+    case port == "22":
+        protocol = "ssh://"
+    case port == "23":
+        protocol = "telnet://"
+    case port == "25":
+        protocol = "smtp://"
+    case port == "80":
+        protocol = "http://"
+    case port == "110":
+        protocol = "pop3://"
+    case port == "143":
+        protocol = "imap://"
+    case port == "443":
+        protocol = "https://"
+    case port == "989", port == "990":
+        protocol = "ftps://"
+    case port == "993":
+        protocol = "imaps://"
+    case port == "995":
+        protocol = "pop3s://"
+    default:
+        protocol = "unknown://"
     }
+
+    // Format the URL based on the protocol and host
+    var url string
+    if protocol == "" {
+        url = host + ":" + port
+    } else if (port == "80" && protocol == "http://") || (port == "443" && protocol == "https://") {
+        url = protocol + host
+    } else {
+        url = protocol + host + ":" + port
+    }
+
     return url
 }
 
