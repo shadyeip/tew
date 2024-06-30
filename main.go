@@ -8,7 +8,9 @@ import (
     "fmt"
     "io/ioutil"
     "log"
+    "net"
     "os"
+    "sort"
     "strings"
 
     "github.com/n0ncetonic/nmapxml"
@@ -23,6 +25,7 @@ func main() {
     var ipportArg = flag.String("i", "", "IP:Port Input File (Optional)")
     var dnsxArg = flag.String("dnsx", "", "dnsx -resp output data (Optional)")
     var vhostRep = flag.Bool("vhost", false, "Use dnsx data to insert vhosts (Optional)")
+    var includeOrphanedIpsArg = flag.Bool("include-orphaned-ips", false, "Include IP:port even with vhost (Optional)")
     var urlArg = flag.Bool("urls", false, "Guess HTTP URLs from input (Optional)")
     var outputArg = flag.String("o", "", "Output filename (Optional)")
 
@@ -34,6 +37,7 @@ func main() {
     output := *outputArg
     dnsx := *dnsxArg
     vhost := *vhostRep
+    includeOrphanedIps := *includeOrphanedIpsArg
     urls := *urlArg
 
     if (input == "") && (ipport == "") {
@@ -42,10 +46,47 @@ func main() {
     }
 
     if input != "" {
-        results = parse{}.parseNmap(input, dnsx, vhost, urls)
+        results = parse{}.parseNmap(input, dnsx, vhost, includeOrphanedIps, urls)
     } else if ipport != "" {
-        results = parseIpport(ipport, dnsx, vhost, urls)
+        results = parseIpport(ipport, dnsx, vhost, includeOrphanedIps, urls)
     }
+
+    results = unique(results)
+
+    // Remove ip:port entries for IPs that have associated domains
+    if vhost {
+        ipSet := make(map[string]bool)
+        domainSet := make(map[string]bool)
+        updatedResults := []string{}
+
+        for _, line := range results {
+            parts := strings.Split(line, ":")
+            if len(parts) == 2 {
+                if net.ParseIP(parts[0]) != nil {
+                    ipSet[parts[0]] = true
+                } else {
+                    domainSet[parts[0]] = true
+                }
+            }
+        }
+
+        for _, line := range results {
+            parts := strings.Split(line, ":")
+            if len(parts) == 2 {
+                if net.ParseIP(parts[0]) != nil {
+                    if !domainSet[parts[0]] {
+                        updatedResults = append(updatedResults, line)
+                    }
+                } else {
+                    updatedResults = append(updatedResults, line)
+                }
+            }
+        }
+
+        results = updatedResults
+    }
+
+    sort.Strings(results)
 
     for _, line := range results {
         fmt.Println(line)
@@ -80,7 +121,7 @@ func unique(slice []string) []string {
     return uniqSlice
 }
 
-func parseIpport(input string, dnsx string, vhost bool, urls bool) []string {
+func parseIpport(input string, dnsx string, vhost bool, includeOrphanedIps bool, urls bool) []string {
     var index map[string][]string
     var output []string
 
@@ -117,7 +158,7 @@ func parseIpport(input string, dnsx string, vhost bool, urls bool) []string {
             service = "https"
         }
 
-        resp := processData(ip, port, service, vhost, urls, index)
+        resp := processData(ip, port, service, vhost, includeOrphanedIps, urls, index)
         output = append(output, resp...)
     }
 
@@ -125,10 +166,10 @@ func parseIpport(input string, dnsx string, vhost bool, urls bool) []string {
         log.Fatal(err)
     }
 
-    return unique(output)
+    return output
 }
 
-func (p parse) parseNmap(input string, dnsx string, vhost bool, urls bool) []string {
+func (p parse) parseNmap(input string, dnsx string, vhost bool, includeOrphanedIps bool, urls bool) []string {
     var index map[string][]string
     var output []string
 
@@ -159,54 +200,82 @@ func (p parse) parseNmap(input string, dnsx string, vhost bool, urls bool) []str
                 if portData.State.State == "open" {
                     portID := portData.PortID
                     service := portData.Service.Name
-                    resp := processData(ipAddr, portID, service, vhost, urls, index)
+                    resp := processData(ipAddr, portID, service, vhost, includeOrphanedIps, urls, index)
                     output = append(output, resp...)
                 }
             }
         }
     }
 
-    return unique(output)
+    return output
 }
 
-func processData(ipAddr string, port string, service string, vhost bool, urls bool, index map[string][]string) []string {
+func processData(ipAddr string, port string, service string, vhost bool, includeUniqueIp bool, urls bool, index map[string][]string) []string {
     var output []string
+    indexed, exists := index[ipAddr]
+
+    // Check if the vhost option is enabled
     if vhost {
-        indexed := index[ipAddr]
-        for _, dom := range indexed {
-            line := ""
-            if urls {
-                line = generateURL(dom, port, service)
-            } else {
-                line = dom + ":" + port
+        // If the IP address has associated domains
+        if exists {
+            // Iterate over each domain associated with the IP address
+            for _, dom := range indexed {
+                var line string
+                // If URL generation is enabled, generate a URL
+                if urls {
+                    line = generateURL(dom, port, service)
+                } else {
+                    // Otherwise, format as domain:port
+                    line = dom + ":" + port
+                }
+                // Add the formatted string to the output list
+                output = append(output, line)
             }
+        }
+        // If includeUniqueIp is enabled and the IP address has no associated domains
+        if includeUniqueIp && !exists {
+            var line string
+            // If URL generation is enabled, generate a URL
+            if urls {
+                line = generateURL(ipAddr, port, service)
+            } else {
+                // Otherwise, format as ip:port
+                line = ipAddr + ":" + port
+            }
+            // Add the formatted string to the output list
             output = append(output, line)
         }
     } else {
-        line := ""
+        var line string
+        // If URL generation is enabled, generate a URL
         if urls {
             line = generateURL(ipAddr, port, service)
         } else {
+            // Otherwise, format as ip:port
             line = ipAddr + ":" + port
         }
+        // Add the formatted string to the output list
         output = append(output, line)
     }
+
     return output
 }
 
 func generateURL(host string, port string, service string) string {
     url := ""
+    // Determine the protocol based on the port and service
     if (port == "80" && service == "http") || (port == "443" && service == "https") {
         url = service + "://" + host
     } else if strings.Contains(service, "http") {
-        if strings.Contains(port, "80") {
-            service = "http"
-        } else if strings.Contains(port, "443") {
-            service = "https"
+        if port == "80" {
+            url = "http://" + host + ":" + port
+        } else if port == "443" {
+            url = "https://" + host + ":" + port
         } else {
-            service = "http"
+            url = "http://" + host + ":" + port
         }
-        url = service + "://" + host + ":" + port
+    } else {
+        url = "http://" + host + ":" + port
     }
     return url
 }
