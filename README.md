@@ -38,7 +38,6 @@ tew -x file.xml | httpx -json -o http.json
 ## Stdin support
 ```
 cat data/ex1/nmap.xml | go run main.go -x -
-```
 
 93.184.216.34:80
 93.184.216.34:443
@@ -52,6 +51,7 @@ cat data/ex1/nmap.xml | go run main.go -x -
 1.1.1.1:443
 1.0.0.1:80
 1.0.0.1:443
+```
 
 ## DNSx Parsing
 If you want to correlate DNSx JSON output, simply generate a JSON file and import it using the following syntax.
