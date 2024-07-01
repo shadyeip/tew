@@ -65,9 +65,9 @@ tew -x nmap.xml -dnsx dns.json --vhost | cut -d : -f1| sort | uniq | httpx -json
 ```
 
 ## Include Orphaned IPs
-In some situations, your Nmap XML file may contain additional IP addresses that are not present in your DNS JSON file. These IPs do not have associated subdomains in the dns.json file. If you want to include these IP entries in your output, you can use the `--include-orphaned-ips` flag.
+In some situations, your Nmap XML file may contain additional IP addresses that are not present in your DNS JSON file. These IPs do not have associated subdomains in the DNS JSON file. If you want to include these IP entries in your output, you can use the `--include-orphaned-ips` flag.
 
-This is useful when you have a comprehensive Nmap scan that identifies more IPs than those resolved by DNS lookups. The `--include-orphaned-ips` flag ensures that all relevant IP pairs are included, even if they do not map to any subdomain.
+This flag is useful when you have a comprehensive Nmap scan that identifies more IPs than those resolved by DNS lookups. The `--include-orphaned-ips` flag ensures that only IP addresses without an associated domain are included in the output. The output will also include the virtual host (vhost) entries when the `--vhost` flag is used.
 
 Example output:
 
